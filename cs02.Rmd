@@ -1,0 +1,401 @@
+---
+title: "CS02 - Predicting Annual Air Pollution"
+author: "Hillary Alejandro De Luis, Austria Wang, Jessie Qiu, Junzhi Wei & Zifan Luo"
+output: 
+  html_document:
+    theme: cosmo              
+    highlight: kate                
+    toc: true                      
+    toc_float: true                 
+    toc_depth: 3                    
+    code_folding: hide 
+---
+
+## Introduction
+
+```{r setup, include=FALSE}
+# control global Rmd chunk settings
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+```
+
+  In this case study we are trying to predict the annual average of air pollution concentrations in the United States as well as figuring out if there is a correlation between socioeconomic status and the number of filter based particulate matter monitors placed in a region. According to the National Institute of Environmental Health Sciences, air pollution exposure is associated with oxidative stress and inflammation in human cells, which may be linked to chronic diseases and cancer. This caused the International Agency for Research on Cancer of the World Health Organization to classify air pollution as a human carcinogen back in 2013. [^1] A 2018 study done by Tingru Yang and Wenling Liu found that increased air pollution has a significantly negative effect on human health and contributes to health inequality. [^2] This study also found that lower income individuals are more likely to be exposed to pollution and experience greater health issues due to low-income residents being unable to choose their conditions of life compared to more higher income areas. 
+  
+  For our case study the main air pollutant we are focusing on is particulate matter which are small liquids and solids suspended in the air which includes lead and other dust particles. [^3] Since air pollution particulates are categorized by size, the EPA uses filter-based Particulate Matter monitors to measure the mass of particles within a specific volume of air, which we will analyze to determine which areas have a higher concentration of these monitors. [^4] As for categorizing the socioeconomic status of a region, we are going to use poverty level as a measure, allowing us to assess economic disparities and their potential correlation with air pollution concentrations. [^5] Overall, we aim to determine the annual levels of air pollution concentrations across the United States and assess whether the number of monitors correlates with a region's socioeconomic status. 
+  
+
+[^1]: Institute, National. “Air Pollution and Your Health.” National Institute of Environmental Health Sciences, U.S. Department of Health and Human Services, 2024, www.niehs.nih.gov/health/topics/agents/air-pollution. 
+[^2]: Yang, Tingru, and Wenling Liu. “Does air pollution affect public health and health inequality? empirical evidence from China.” Journal of Cleaner Production, vol. 203, Dec. 2018, pp. 43–52, https://doi.org/10.1016/j.jclepro.2018.08.242.   
+[^3]: Shaw, Randall D. “Confused about Dust, Particulates and Fumes in the Workplace? Part 1: Dust and Particulate Matter.” Redlog, 29 June 2016, www.redlogenv.com/worker-safety/part-1-dust-and-particulate-matter. 
+[^4]: Protection, Envriomental. “Particulate Matter (PM) Basics.” EPA, Environmental Protection Agency, 2024, www.epa.gov/pm-pollution/particulate-matter-pm-basics. 
+[^5]: Prevention, Control. “Socioeconomic Factors.” Centers for Disease Control and Prevention, Centers for Disease Control and Prevention, 1 Sept. 2023, www.cdc.gov/dhdsp/health_equity/socioeconomic.htm. 
+
+## Questions
+
+- With what accuracy can we predict US annual average air pollution concentrations?
+- Is there a correlation between socioeconomic status and the number of monitors placed?
+
+### Load packages
+
+```{r load-packages, message=FALSE}
+library(tidyverse)
+library(OCSdata)
+library(GGally)
+library(tidymodels)
+library(vip)
+library(doParallel)
+
+
+# install.packages("OCSdata")
+#OCSdata::raw_data("ocs-bp-air-pollution", outpath = getwd())
+```
+
+## The Data
+
+### Data Explanation 
+
+This analysis is based on data from the Open Case Studies by Wright et al. (2020) titled "Predicting Annual Air Pollution". [^6] The data that this case study uses comes from the US Environmental Protection Agency (EPA), the National Aeronautics and Space Administration (NASA), the US Census, and the National Center for Health Statistics (NCHS). Specifically, This case study uses monitor data that comes from gravimetric monitors operated by the US EPA. There are in total 876 monitors, and each has 48 features with values. These features include data about population density, road density, urbanization levels, and NASA satellite data. This study aimed to use gravimetric monitoring data of fine particulate matter (PM2.5) captured from air pollution monitors to predict air pollution.
+
+ [^6]: Case, Open. “Open Case Studies: Predicting Annual Air Pollution.” Open Case Studies: Predicting Annual Air Pollution, 2024, www.opencasestudies.org/ocs-bp-air-pollution/. 
+
+
+### Data Import
+First of all, we need to convert the csv file into a readable dataframe.
+```{r}
+pm <- read_csv("data/pm25_data.csv")
+```
+### Data Wrangling
+Let's look at the overview of the dataset.
+```{r}
+pm |>
+  glimpse()
+```
+
+We can observe that there are 876 monitors and 50 variables, including the outcome variable, which is label as "value". As we scroll through the overview, we can see that each variables are indicated as string variables <chr>, and numeric and decimal variables <dbl>. But there are three variables that are indicated as numerical but don't have real numeric meanings: id, fips, and zcta. For these three variables, we need to change their variable type as factor, which interpreted as just a unique level and categorical variables and not as the number.
+
+
+Now, let's change the variable types to factor for id, fips, and zcta, and look at the overview again. 
+```{r}
+pm <-pm |>
+  mutate(across(c(id, fips, zcta), as.factor)) |>
+
+  glimpse()
+```
+
+Let's use skimr to observe the dataset in details.
+```{r}
+# if you haven't already - install.packages("skimr")
+skimr::skim(pm)
+```
+We use skimr to get know more about the data. In the n_missing column, we can see that there's 0 for all the variables, meaning that there are no missing values for all the variables. This can be supported by the complete_rate column as well. A complete rate = 1 means that no data is missing for the variable being analyzed. In other words, 100% of the observations in the variables are complete. So, we don't need to remove any rows as no missing values exist. In the n_unique column, there are 49 states included in the dataset. 
+
+
+Let's see what the two states are excluded in the next table.
+```{r}
+pm |> 
+  dplyr::distinct(state) 
+```
+
+As the above table shows, the state Alaska and Hawaii are not included in the data.
+
+
+### Data Code book
+This is the codebook for all the variables in the dataset and their corresponding definitions. 
+```{r}
+variable_names <- c("id", "fips", "Lat", "Lon", "state", "county", "city", "CMAQ", "zcta", "zcta_area", "zcta_pop", "imp_a500", "imp_a1000", "imp_a5000", "imp_a10000", "imp_a15000", "county_area", "county_pop", "Log_dist_to_prisec", "log_pri_length_5000", "log_pri_length_10000", "log_pri_length_15000", "log_pri_length_25000", "log_prisec_length_500", "log_prisec_length_1000", "log_prisec_length_5000", "log_prisec_length_10000", "log_prisec_length_15000", "log_prisec_length_25000", "log_nei_2008_pm25_sum_10000", "log_nei_2008_pm25_sum_15000", "log_nei_2008_pm25_sum_25000", "log_nei_2008_pm10_sum_10000", "log_nei_2008_pm10_sum_15000", "log_nei_2008_pm10_sum_25000", "popdens_county", "popdens_zcta", "nohs", "somehs", "hs", "somecollege", "associate", "bachelor", "grad", "pov", "hs_orless", "urc2013", "urc2006", "aod")
+
+Definition <- c(
+  "Monitor number – the county number is indicated before the decimal – the monitor number is indicated after the decimal. Example: 1073.0023 is Jefferson county (1073) and .0023 one of 8 monitors",
+  "Federal information processing standard number for the county where the monitor is located – 5 digit id code for counties (zero is often the first value and sometimes is not shown) – the first 2 numbers indicate the state – the last three numbers indicate the county. Example: Alabama’s state code is 01 because it is first alphabetically (note: Alaska and Hawaii are not included because they are not part of the contiguous US)",
+  "Latitude of the monitor in degrees",
+  "Longitude of the monitor in degrees",
+  "State where the monitor is located",
+  "County where the monitor is located", 
+  "City where the monitor is located",
+  "Estimated values of air pollution from a computational model called Community Multiscale Air Quality (CMAQ) – A monitoring system that simulates the physics of the atmosphere using chemistry and weather data to predict the air pollution – Does not use any of the PM2.5 gravimetric monitoring data. (There is a version that does use the gravimetric monitoring data, but not this one!) – Data from the EPA",
+  "Zip Code Tabulation Area where the monitor is located – Postal Zip codes are converted into “generalized areal representations” that are non-overlapping – Data from the 2010 Census",
+  "Land area of the zip code area in meters squared – Data from the 2010 Census",
+  "Population in the zip code area – Data from the 2010 Census",
+  "Impervious surface measure – Within a circle with a radius of 500 meters around the monitor – Impervious surface are roads, concrete, parking lots, buildings – This is a measure of development",
+  "Impervious surface measure – Within a circle with a radius of 1000 meters around the monitor",
+  "Impervious surface measure – Within a circle with a radius of 5000 meters around the monitor",
+  "Impervious surface measure – Within a circle with a radius of 10000 meters around the monitor",
+  "Impervious surface measure – Within a circle with a radius of 15000 meters around the monitor",
+  "Land area of the county of the monitor in meters squared",
+  "Population of the county of the monitor",
+  "Log (Natural log) distance to a primary or secondary road from the monitor – Highway or major road",
+  "Count of primary road length in meters in a circle with a radius of 5000 meters around the monitor (Natural log) – Highways only",
+  "Count of primary road length in meters in a circle with a radius of 10000 meters around the monitor (Natural log) – Highways only",
+  "Count of primary road length in meters in a circle with a radius of 15000 meters around the monitor (Natural log) – Highways only",
+  "Count of primary road length in meters in a circle with a radius of 25000 meters around the monitor (Natural log) – Highways only",
+  "Count of primary and secondary road length in meters in a circle with a radius of 500 meters around the monitor (Natural log) – Highway and secondary roads",
+  "Count of primary and secondary road length in meters in a circle with a radius of 1000 meters around the monitor (Natural log) – Highway and secondary roads",
+  "Count of primary and secondary road length in meters in a circle with a radius of 5000 meters around the monitor (Natural log) – Highway and secondary roads",
+  "Count of primary and secondary road length in meters in a circle with a radius of 10000 meters around the monitor (Natural log) – Highway and secondary roads",
+  "Count of primary and secondary road length in meters in a circle with a radius of 15000 meters around the monitor (Natural log) – Highway and secondary roads",
+  "Count of primary and secondary road length in meters in a circle with a radius of 25000 meters around the monitor (Natural log) – Highway and secondary roads",
+  "Tons of emissions from major sources data base (annual data) sum of all sources within a circle with a radius of 10000 meters of distance around the monitor (Natural log)",
+  "Tons of emissions from major sources data base (annual data) sum of all sources within a circle with a radius of 15000 meters of distance around the monitor (Natural log)",
+  "Tons of emissions from major sources data base (annual data) sum of all sources within a circle with a radius of 25000 meters of distance around the monitor (Natural log)",
+  "Tons of emissions from major sources data base (annual data) sum of all sources within a circle with a radius of 10000 meters of distance around the monitor (Natural log)",
+  "Tons of emissions from major sources data base (annual data) sum of all sources within a circle with a radius of 15000 meters of distance around the monitor (Natural log)",
+  "Tons of emissions from major sources data base (annual data) sum of all sources within a circle with a radius of 25000 meters of distance around the monitor (Natural log)",
+  "Population density (number of people per kilometer squared area of the county)",
+  "Population density (number of people per kilometer squared area of zcta)",
+  "Percentage of people in zcta area where the monitor is that do not have a high school degree – Data from the Census",
+  "Percentage of people in zcta area where the monitor whose highest formal educational attainment was some high school education – Data from the Census",
+  "Percentage of people in zcta area where the monitor whose highest formal educational attainment was completing a high school degree – Data from the Census",
+  "Percentage of people in zcta area where the monitor whose highest formal educational attainment was completing some college education – Data from the Census",
+  "Percentage of people in zcta area where the monitor whose highest formal educational attainment was completing an associate degree – Data from the Census",
+  "Percentage of people in zcta area where the monitor whose highest formal educational attainment was a bachelor’s degree – Data from the Census",
+  "Percentage of people in zcta area where the monitor whose highest formal educational attainment was a graduate degree – Data from the Census",
+  "Percentage of people in zcta area where the monitor is that lived in poverty in 2008 - or would it have been 2007 guidelines?? https://aspe.hhs.gov/2007-hhs-poverty-guidelines – Data from the Census",
+  "Percentage of people in zcta area where the monitor whose highest formal educational attainment was a high school degree or less (sum of nohs, somehs, and hs)",
+  "2013 Urban-rural classification of the county where the monitor is located – 6 category variable - 1 is totally urban 6 is completely rural – Data from the National Center for Health Statistics",
+  "2006 Urban-rural classification of the county where the monitor is located – 6 category variable - 1 is totally urban 6 is completely rural – Data from the National Center for Health Statistics",
+  "Aerosol Optical Depth measurement from a NASA satellite – based on the diffraction of a laser – used as a proxy of particulate pollution – unit-less - higher value indicates more pollution – Data from NASA"
+)
+
+#the data frame
+Code_Book <- data.frame(
+  Variable = variable_names,
+  Definition = Definition,  
+  stringsAsFactors = FALSE
+) 
+
+write.csv(Code_Book, "Code_Book.csv", row.names = FALSE)
+cb <- read_csv("Code_Book.csv", show_col_types = FALSE)
+cb
+```
+
+
+### Data EDA
+
+Now, let's look at the correlation between all of the variables. 
+```{r, correlation heatmap}
+#we want to see strong correlations 
+PM_cor <- cor(pm |> dplyr::select_if(is.numeric))
+corrplot::corrplot(abs(PM_cor), order = "hclust", tl.cex = 0.5, cl.lim = c(0, 1))
+```
+
+We put all the variables in the correlation heatmap to observe the correlations between each of them. In the above heatmap, we make the graph only show the blue color, which is the correlation between 0 to 1. It's because we only care about the strength of the correlation regardless of its direction, in order to find out the highly correlated variables. The darker blue means strong correlation, and the lighter blue means weak correlation. Thus, we can observe that the imp (Impervious surface measure), nei (emission variables), and pri (road density) are highly correlated within their groups. Additionally, there are no predictors that are highly correlated with the outcome (value). 
+
+Let's take a closer look of the correlation within imp.
+```{r,correlation within imp}
+select(pm, contains("imp")) |>
+  ggcorr(palette = "RdBu", label = TRUE)
+```
+
+Now, we are looking at the correlation within the group of imp (Impervious surface measure). We can see that the variables within the group of imp are highly correlated with each other, with correlations ranging from 0.6 to 1. 
+
+Let's take a closer look of the correlation within nei.
+```{r, correlation within nei}
+select(pm, contains("nei")) |>
+  GGally::ggcorr(hjust = .85, size = 3,
+       layout.exp=2, label = TRUE)
+```
+
+We are looking at the correlation within the group of nei (tons of emissions). We can see that the variables within the group of nei are highly correlated with each other, with correlations ranging from 0.7 to 1. 
+
+Let's take a closer look of the correlation within pri.
+```{r, correlation within pri}
+select(pm, contains("pri")) |>
+  GGally::ggcorr(hjust = .85, size = 3,
+       layout.exp=2, label = TRUE)
+```
+
+We are looking at the correlation within the group of pri (counts of primary roads length in meters around the monitor). We can observe that most of the variables are highly correlated with one another, with darker color indicating stronger strength. The red color indicates positive correlation, and the blue color indicates negative correlation. For here, the log_dist_to_prisec (log distance to the primary or secondary roads from the monitor) shows negative correlations with other pri variables. This makes senses because road density decreases as you move farther from major roads. Thus, locations with a shorter distance to primary roads tend to have a higher length of primary roads within a given radius.
+
+
+## Analysis
+After the EDA, in this following part, we will employ some machine learning techniques to evaluate the prediction accuracy and understand the factors influencing air pollution in order to answer our main question of this case study.
+
+First of all, we will split the dataset into training and testing subsets, 2/3 of the data will be the training set and the rest 1/3 will be the testing set.The training set is used to build the predictive model, while the testing set evaluates its performance on unseen data.
+```{r}
+set.seed(1234)#ensures we all get the exact same random split
+pm_split <- rsample::initial_split(data = pm, prop = 2/3)
+train_pm <- rsample::training(pm_split)
+test_pm <- rsample::testing(pm_split)
+```
+
+Next, we need to preprocess the dataset for ensuring clean input for the models. We need to 1.specify the variable roles(predictors vs. outcome) 2.scaling variables and encoding categorical variables 3. reduce the redundant predictor variables.
+
+As we can tell from our EDA part, some predictor variables are highly correlated to one another, if we use all of them as predictor variables it can add noise to the model and affect its performance.
+Therefore, in order to avoid extensive feature engineering and handling multicollinearity in our analysis, we decided to fit our data into Random Forest model which it has inherent mechanism for identifying the relevant variables and handling interactions and non-linearities, also reducing the risk of overfitting to the training dataset. And for Random Forest model, we can just keep our categorical data as it is(no need for one-hot encoding).
+```{r}
+RF_rec <- recipe(train_pm) |>
+    update_role(everything(), new_role = "predictor")|>
+    update_role(value, new_role = "outcome")|>
+    update_role(id, new_role = "id variable") |>
+    update_role("fips", new_role = "county id") |>
+    step_novel("state") |> #necessary here for the state variable to get all cross validation folds to work
+    step_string2factor("state", "county", "city") |>
+    step_rm("county") |>
+    step_rm("city") |>
+    step_rm("zcta") |>
+    step_corr(all_numeric())|>
+    step_nzv(all_numeric())
+
+```
+
+After the data preprocessing, we will start fitting our data into the Random Forest model and specify some key parameters including:
+1. mtry - The number of predictor variables (or features) that will be randomly sampled at each split when creating the tree models.
+2. min_n - The minimum number of data points in a node that are required for the node to be split further.
+```{r}
+RF_PM_model <- parsnip::rand_forest(mtry = 10, min_n = 3) |> 
+  set_engine("randomForest") |>
+  set_mode("regression")
+
+RF_PM_model
+```
+Let's fit our data into the Random Forest Model
+```{r}
+RF_wflow <- workflows::workflow() |>
+  workflows::add_recipe(RF_rec) |>
+  workflows::add_model(RF_PM_model)
+
+RF_wflow_fit <- parsnip::fit(RF_wflow, data = train_pm)
+RF_wflow_fit
+```
+
+As we can tell from the model performance summary, 2.668013 is the mean squared error (MSE) of the predictions on the training data.It indicates how far, on average, the predicted values are from the actual values in terms of squared units. And 59.29% variance explained means the model captures about 59% of the variability in the target variable.
+
+We can also visualize the top 10 contributing variables and evaluate the variable importance
+```{r}
+RF_wflow_fit %>% 
+  extract_fit_parsnip() %>% 
+  vip(num_features = 10)
+```
+
+From the graph above we can tell that state is the most important predictor.The feature state has the highest importance score, indicating that it contributes the most to the model's predictions. Besides, other features like CMAQ, county_area are also significant predictors.
+
+Next, let’s take a look at model performance by fitting the data using cross validation(4-fold)
+```{r}
+set.seed(456)
+vfold_pm <- rsample::vfold_cv(data = train_pm, v = 4)
+resample_RF_fit <- tune::fit_resamples(RF_wflow, vfold_pm)
+collect_metrics(resample_RF_fit)
+```
+
+According to the table above, we can tell that the model performs moderately well, with an R² of ~59% and a reasonably low RMSE.
+
+Additionally, we can also conduct Model Tuning in order to further improve the performance of our model that is to  see what values for min_n and mtry resulted in the best performance of the Random Forest Model. 
+```{r}
+#specify model
+tune_RF_model <- rand_forest(mtry = tune(), min_n = tune()) |>
+  set_engine("randomForest") |>
+  set_mode("regression")
+
+#Create Workflow   
+RF_tune_wflow <- workflows::workflow() |>
+  workflows::add_recipe(RF_rec) |>
+  workflows::add_model(tune_RF_model)
+
+n_cores <- parallel::detectCores()
+doParallel::registerDoParallel(cores = n_cores)
+set.seed(123)
+tune_RF_results <- tune_grid(object = RF_tune_wflow, resamples = vfold_pm, grid = 20)
+tune_RF_results
+
+tune_RF_results %>%
+  collect_metrics()
+show_best(tune_RF_results, metric = "rmse", n = 1)
+```
+
+From the results above, we can know that mtry of 16 and min_n of 9 had the best rmse value of 1.63464.
+
+Lastly, we can finally evaluate the performance of the model with our testing data! We will use the random forest model that we built to predict values for the monitors in the testing data and we will use the values for mtry and min_n that we just determined based on our tuning analysis to achieve the best performance. And we can take a look at the predicted values for the test set (the 292 rows with predictions out of the 876 original monitor values)
+```{r}
+tuned_RF_values<- select_best(tune_RF_results, metric="rmse")
+
+RF_tuned_wflow <-RF_tune_wflow %>%
+  tune::finalize_workflow(tuned_RF_values)
+
+overallfit <- RF_wflow |>
+  tune::last_fit(pm_split)
+
+collect_metrics(overallfit)
+
+test_predictions <- collect_predictions(overallfit)
+test_predictions
+
+```
+
+According to the first table,the results we get are pretty similar to what we saw in the training data. We can tell that the model can predict US annual average air pollution concentrations with moderate accuracy, explaining approximately 59.8% of the variability and having an average prediction error of 1.73 units. This level of accuracy is sufficient for general trend analysis or regional comparisons but may not be precise enough for highly specific predictions or policy decisions without further refinement.
+
+
+### Extended Question: Is there a correlation between socioeconomic status and the number of monitors placed?
+
+First, Let's look at the overview of the dataset, and choose suitable variable for socioeconomic status and the number of monitors. Since we already looked at the missing values, where there's no missing values in our dataset, so we don't need to select out some rows. 
+```{r}
+pm |>
+  glimpse()
+```
+
+After viewing all the variables, we choose pov to indicate the socioeconomic status. We can count number of id to indicate the number of monitors. We would like to find the correlation between them by each state, to make sure that the two variables are in the same unit to compare. So, we need some steps to convert the pov (Percentage of people in zcta area where the monitor is) to pov by each state. We also need to count the number of monitors could be derived from id by counting the unique monitors in each state.
+
+Now, lets convert pov from acta area to each state, and counting the unique monitors in each state.
+```{r}
+state_summary <- pm |>
+  group_by(state) |>
+  summarize(
+    total_population = sum(zcta_pop, na.rm = TRUE), # Total population in the state
+    weighted_pov = sum(pov * zcta_pop, na.rm = TRUE) / sum(zcta_pop, na.rm = TRUE), # Weighted poverty rate
+    monitors_count = n_distinct(id)
+  )
+
+state_summary
+```
+
+The above table shows the number of monitors in each state and percentage of people on average in each state where the monitor is. The table also shows the total population in each state. Now, we have the variables we want. We can start to look at the correlation between the two. 
+
+
+The following graph demonstrates the relationship between weighted poverty rate vs. number of monitors. 
+```{r}
+ggplot(state_summary, aes(x = weighted_pov, y = monitors_count)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "Poverty vs. Number of Monitors",
+       subtitle = "Higher weighted rate pf poverty associated with a greater number of monitors",
+       x = "Weighted Poverty (%)",
+       y = "Number of Monitors")
+```
+
+The scatter of the points around the regression line indicates some variability. While there is a general trend of increasing monitor numbers with higher poverty rates, the relationship is not very strong as there is considerable scatter around the line. There is a point significantly deviate from the general trend (a region with 80 monitors despite moderate poverty levels). After I looked back at the table, the outlier region is California. This outlier might represent areas with specific policies, unique environmental concerns, or other factors influencing monitor placement. The blue regression line shows a positive correlation between poverty rates and the number of monitors. This means that areas with higher weighted poverty rates tend to have more air quality monitors placed.
+
+We now know that there is a sightly positive correlation between weighted poverty and number of monitors. Let's look at the actual strength between them. 
+```{r}
+state_summary |> 
+  select(weighted_pov, monitors_count) |> 
+  GGally::ggcorr(hjust = 0.85, size = 3, layout.exp = 2, label = TRUE)
+```
+
+As the correlation graph shows, there is a slightly positive correlation between weighted poverty rate and number of monitors, with a scale of 0.2 strength. 
+
+## Results & Discussion 
+
+To evaluate the prediction accuracy of air pollution concentrations across the United States and identify the factors affecting them, we utilized a Random Forest model. We chose this model because of its accuracy and capability in handling large data sets while capturing complex relationships between variables. Additionally, Random Forest models are less likely to overfit which makes them a great choice for our dataset.
+
+After fitting the data into the Random Forest model, we observed that it explained approximately 59.29% of the variance in the target variable. This means the model accurately explains about 59% of the differences in U.S. annual average air pollution concentrations. While this variance provides helpful insights, it shows there's still room to make the predictive model more accurate.
+
+In order to answer our main research question, we needed to identify which variables were most important in the model. Interestingly, the variable **'state'** showed up as the most influential variable in determining air pollution levels. This finding suggests that district factors like regulations, industrial operations or geography, strongly influence pollution levels. 
+
+Knowing how important it was to check our model's accuracy, we proceeded with a 4-fold cross-validation. This step ensured that our model’s performance wasn’t too reliant on the training data. Cross-validation was important for our study because it gave us confidence that our results would hold true across different datasets. 
+To further enhance the model, we applied a model tuning to improve its predictive power. After running the model we found a slight improvement. It could now explain **59.8%** of the variance with an average **prediction error of 1.73 units**. These results suggest that the model performs well as a tool for offering a broad overview of air pollution trends.
+
+Overall, the Random Forest model showed strong performance, answering our research question by predicting U.S. annual average air pollution concentrations with approximately 59.8% accuracy. While the model provides useful insights into differences and key factors, more improvements would be needed to use it for environmental solutions or policy making.
+ 
+To answer our extended question, which was to investigate the potential link between socioeconomic status and the number of air pollution monitors, we used the poverty rate (pov) as a measure of socioeconomic status and the number of monitors (id) as our dependent variable. To maintain consistency in our analysis, we looked at the data at the state level, using the same unit of analysis for both variables. We also adjusted some variables to accurately count the number of monitors in each state by identifying the unique monitor ids within each state.
+
+To visualize the relationship between these two variables, we created a scatter plot showing the number of monitors in each state based on poverty rate. We found that their relationship rather weak.To confirm this, we ran a correlation test to measure the strength of the relationship. The result showed a weak positive correlation of 0.2 between the weighted poverty rate and the number of monitors.
+
+This suggests that although there is a slight positive connection between higher poverty rates and the number of monitors, the relationship is weak. Knowing that the correlation value is 0.2, suggests that other factors may have a greater impact on the placement of monitors than socioeconomic status. Further investigation would be needed into other variables to help draw clearer conclusions. 
+
+## Limitations
+
+While our study provided valuable insights into predicting air pollution levels and examining socioeconomic factors, there are still several limitations to be acknowledged. First, the Random Forest model explained only 59.8% of the variance in air pollution concentrations, which left a substantial portion unexplained. Second, the correlation between poverty rate and the number of air pollution monitors was weak (with a correlation coefficient of 0.2). This means that poverty rate is not a strong predictor of the number of air pollution monitors placed. Lastly, the data we analyzed uses annual mean estimates of pollution levels, however, pollution levels can fluctuate greatly by season, day, and hour. This indicates that our analysis cannot account for short-term variations and pollution spikes.
+
+
+## Conclusion
+
+In conclusion, this case study sought to predict annual average air pollution concentrations across the United States and explore the relationship between socioeconomic status and the number of air pollution monitors placed in different regions. Using a Random Forest model, we were able to predict air pollution levels with approximately 59.8% accuracy. The analysis revealed that state-level factors were the most influential predictors of air pollution levels. For the extended research question, we found only a weak positive correlation (0.2) between poverty rate and the number of air pollution monitors. This suggests that other factors such as population density may play a larger role in determining monitor placement. This study also has several limitations. The Random Forest model left about 40% of variance unexplained and the correlation between poverty rates and monitor placement was pretty weak. Overall, this study provides a foundation for understanding air pollution trends and identifying key influences on pollution monitoring and distribution, but these constraints underscore the importance for future research. Specifically, future research should refine predictive models, enhance their explanatory power, and address other socioeconomic and environmental factors. Such improvement can give us a more comprehensive picture for predicting US annual average air pollution concentrations.
+
