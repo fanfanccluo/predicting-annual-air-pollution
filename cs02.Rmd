@@ -1,0 +1,83 @@
+---
+title: "CS02 - Predicting Annual Air Pollution"
+author: "Hillary Alejandro De Luis, Austria Wang, Jessie Qiu, Junzhi Wei & Zifan Luo"
+output: 
+  html_document:
+    theme: cosmo              
+    highlight: kate                
+    toc: true                      
+    toc_float: true                 
+    toc_depth: 3                    
+    code_folding: hide 
+---
+
+## Introduction
+
+```{r setup, include=FALSE}
+# control global Rmd chunk settings
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+```
+
+## Questions
+
+With what accuracy can we predict US annual average air pollution concentrations?
+
+### Load packages
+
+```{r load-packages, message=FALSE}
+library(tidyverse)
+library(OCSdata)
+library(GGally)
+
+# install.packages("OCSdata")
+#OCSdata::raw_data("ocs-bp-air-pollution", outpath = getwd())
+```
+
+
+## The Data
+
+
+### Data Import
+
+```{r}
+pm <- read_csv("data/pm25_data.csv")
+```
+
+### Data Wrangling
+```{r}
+# if you haven't already - install.packages("skimr")
+skimr::skim(pm)
+```
+We use skimr to get know more about the data. In the n_missing column, we can see that there's 0 for all the variables, meaning that there are no missing values for all the variables. This can be supported by the complete_rate column as well. A complete rate = 1 means that no data is missing for the variable being analyzed. In other words, 100% of the observations in the variable(s) are complete. In the n_unique column, there are 49 states included in the dataset. Let's see what the two states are excluded in the next table.
+
+```{r}
+pm |> 
+  dplyr::distinct(state) 
+```
+
+As the above table shows, the state Alaska and Hawaii are not included in the data.
+
+```{r}
+#we want to see strong correlations 
+PM_cor <- cor(pm |> dplyr::select_if(is.numeric))
+corrplot::corrplot(abs(PM_cor), order = "hclust", tl.cex = 0.5, cl.lim = c(0, 1))
+```
+
+
+## Analysis
+To start building a machine learning model and make predictions about the air pollution level, let's first split the dataset into training set and testing set, we made 2/3 of our total dataset for training and the remaining 1/3 for testing.
+```{r}
+set.seed(1234)
+pm_split <- rsample::initial_split(data = pm, prop = 2/3)
+pm_split
+```
+```{r}
+train_pm <- rsample::training(pm_split)
+test_pm <- rsample::testing(pm_split)
+count(train_pm, state)
+```
+
+
+## Results & Discussion 
+
+## Conclusion
