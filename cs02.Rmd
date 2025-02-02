@@ -1,6 +1,5 @@
 ---
 title: "CS02 - Predicting Annual Air Pollution"
-author: "Hillary Alejandro De Luis, Austria Wang, Jessie Qiu, Junzhi Wei & Zifan Luo"
 output: 
   html_document:
     theme: cosmo              
